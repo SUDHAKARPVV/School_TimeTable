@@ -46,6 +46,7 @@ class SchoolConfig:
     sheet_class_name: str
     sheet_teacher_name: str
     teacher_title: str
+    no_p8_days: set = field(default_factory=set)   # days with no Period 8 (e.g. {"SAT"})
 
     def canon_teacher(self, name):
         n = re.sub(r"\s+", " ", str(name).strip())
@@ -70,6 +71,12 @@ class Model:
 
     def teachable_periods(self, cls):
         return [1, 2, 3, 4, 5, 6, 7, 8] if cls in self.cfg.no_study_hour else [1, 2, 3, 4, 5, 6, 7]
+
+    def has_p8(self, day_name):
+        return day_name not in self.cfg.no_p8_days
+
+    def has_study_hour(self, cls, day_name):
+        return cls in self.study_hour_classes and self.has_p8(day_name)
 
 
 # =====================================================================
@@ -105,6 +112,7 @@ NRHS = SchoolConfig(
     morning_only=set(),
     sheet_class_name="Class Time table", sheet_teacher_name="Teacher Time Table",
     teacher_title="SCHOOL TEACHER TIMETABLE",
+    no_p8_days={"SAT"},
 )
 
 # =====================================================================
