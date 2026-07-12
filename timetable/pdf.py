@@ -9,7 +9,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph,
                                 Spacer, PageBreak, KeepTogether)
 
-from .model import DAYS, SUBJ_ABBR, CLASS_DISPLAY, GENERIC_TEACHER
+from .model import DAYS
 
 PLABEL = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "Study Hour"]
 SUBJ_COLOR = {
@@ -33,26 +33,28 @@ _SEC = ParagraphStyle("sec", fontName="Helvetica-Bold", fontSize=15,
 
 
 def _class_grid(m, solution, c):
+    cfg = m.cfg
     g = [["—"] * 6 for _ in range(8)]
     for d in range(6):
         for p in range(1, 9):
             if (c, d, p) in solution:
                 s, t = solution[(c, d, p)]
-                g[p - 1][d] = (SUBJ_ABBR.get(s, s), t.replace(" Instructor", ""))
+                g[p - 1][d] = (cfg.subj_abbr.get(s, s), t.replace(" Instructor", ""))
             elif p == 8 and c in m.study_hour_classes:
                 g[p - 1][d] = ("STUDY", m.study_supervisor.get(c, ""))
     return g
 
 
 def _teacher_grid(m, solution, teacher):
+    cfg = m.cfg
     g = [["—"] * 6 for _ in range(8)]
     for (c, d, p), (s, t) in solution.items():
         if t == teacher:
-            g[p - 1][d] = (SUBJ_ABBR.get(s, s), CLASS_DISPLAY.get(c, c))
+            g[p - 1][d] = (cfg.subj_abbr.get(s, s), cfg.class_display.get(c, c))
     for c in m.study_hour_classes:
         if m.study_supervisor.get(c) == teacher:
             for d in range(6):
-                g[7][d] = ("STUDY", CLASS_DISPLAY.get(c, c))
+                g[7][d] = ("STUDY", cfg.class_display.get(c, c))
     return g
 
 
@@ -96,20 +98,22 @@ def _grid_block(title, grid):
     return KeepTogether([header, Spacer(1, 2 * mm), tbl, Spacer(1, 6 * mm)])
 
 
-def write_pdf(path, m, solution, school="NRHS"):
+def write_pdf(path, m, solution, school=None):
+    cfg = m.cfg
+    school = school or cfg.name
     doc = SimpleDocTemplate(path, pagesize=landscape(A4),
                             leftMargin=12 * mm, rightMargin=12 * mm,
                             topMargin=10 * mm, bottomMargin=10 * mm,
                             title=f"{school} Timetable")
     story = [Paragraph(f"{school} — Class Timetables", _SEC), Spacer(1, 3 * mm)]
     for c in m.classes:
-        story.append(_grid_block(f"Class:  {CLASS_DISPLAY.get(c, c)}", _class_grid(m, solution, c)))
+        story.append(_grid_block(f"Class:  {cfg.class_display.get(c, c)}", _class_grid(m, solution, c)))
 
     story.append(PageBreak())
     story.append(Paragraph(f"{school} — Teacher Timetables", _SEC))
     story.append(Spacer(1, 3 * mm))
     teachers = sorted(m.teachers) + sorted(
-        g for g in GENERIC_TEACHER.values() if any(t == g for _, t in solution.values()))
+        g for g in cfg.generic_teacher.values() if any(t == g for _, t in solution.values()))
     for who in teachers:
         story.append(_grid_block(f"Teacher:  {who}", _teacher_grid(m, solution, who)))
 

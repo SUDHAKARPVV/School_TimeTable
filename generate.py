@@ -19,22 +19,23 @@ def main():
     ap = argparse.ArgumentParser(description="School timetable generator")
     ap.add_argument("--input", required=True, help="raw information .xlsx")
     ap.add_argument("--output", required=True, help="output .xlsx")
+    ap.add_argument("--school", default="NRHS", choices=["NRHS", "NRCS"])
     ap.add_argument("--seconds", type=int, default=120, help="solver time budget")
     ap.add_argument("--log", action="store_true", help="log solver progress")
     args = ap.parse_args()
 
-    print(f"Loading {args.input} ...")
-    m = load_model(args.input)
+    print(f"Loading {args.input} (school={args.school}) ...")
+    m = load_model(args.input, args.school)
     print(f"  classes={len(m.classes)}  subjects={len(m.subjects)}  teachers={len(m.teachers)}")
 
     print("Solving (CP-SAT) ...")
-    solution, status, obj, pin_notes = solve(m, max_seconds=args.seconds, log=args.log)
+    solution, status, obj, notes, windows = solve(m, max_seconds=args.seconds, log=args.log)
     print(f"  status={status}  objective={obj:.0f}  placed={len(solution)} slots")
-    for note in pin_notes:
-        print("  PIN    :", note)
+    for note in notes:
+        print("  NOTE   :", note)
 
     print("Verifying ...")
-    errors, warnings = verify(m, solution)
+    errors, warnings = verify(m, solution, windows)
     for e in errors:
         print("  ERROR  :", e)
     for w in warnings:
