@@ -93,9 +93,18 @@ _P1_NAME_MAP = {
 }
 _P1_CLASS_MAP = {
     "L.K.G": "LKG", "U.K.G 1": "UKG(A)", "U.K.G 2": "UKG(B)", "1(A)": "Class 1(A)",
-    "1(B)": "CLASS 1(B)", 2: "Class 2", 3: "Class 3", 4: "Class 4", 5: "Class 5",
-    6: "Class 6", 7: "Class 7", 8: "Class 8", 9: "Class 9", 10: "Class 10",
+    "1(B)": "CLASS 1(B)", "2": "Class 2", "3": "Class 3", "4": "Class 4", "5": "Class 5",
+    "6": "Class 6", "7": "Class 7", "8": "Class 8", "9": "Class 9", "10": "Class 10",
 }
+
+
+def _p1key(key):
+    """Normalise a Period-1 header cell to a str map key (handles int 2 vs '2')."""
+    if key in (None, ""):
+        return None
+    if isinstance(key, float) and key.is_integer():
+        key = int(key)
+    return str(key).strip()
 
 # allotment header -> plan subject
 _ALLOT_SUBJ = {
@@ -189,7 +198,7 @@ def load_model(path: str) -> Model:
         else:
             continue
         for key, name in zip(hdr_p1, row[1:]):
-            cl = _P1_CLASS_MAP.get(key)
+            cl = _P1_CLASS_MAP.get(_p1key(key))
             if cl is None or name in (None, ""):
                 continue
             target[cl] = _canon_teacher(_P1_NAME_MAP.get(_norm(name), str(name).strip()))

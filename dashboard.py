@@ -154,11 +154,6 @@ with st.sidebar:
 if "sheets" not in st.session_state and os.path.exists(input_path):
     st.session_state.sheets = read_sheets(input_path)
 
-if save_src and "edited" in st.session_state:
-    write_sheets(*st.session_state.edited, input_path)
-    st.session_state.pop("sheets", None)          # re-read from the saved file
-    st.sidebar.success(f"Saved edits to {input_path}")
-
 tab_data, tab_class, tab_teacher, tab_report = st.tabs(
     ["✏️ Edit data", "📚 Class timetable", "👩‍🏫 Teacher timetable", "✅ Validation & bottlenecks"])
 
@@ -175,6 +170,12 @@ with tab_data:
         st.info("Edit any cell, then click **Generate timetable** in the sidebar.")
     else:
         st.warning(f"Workbook not found: {input_path}")
+
+# Save handler runs AFTER the editors so it always uses the freshest edits.
+if save_src and "edited" in st.session_state:
+    write_sheets(*st.session_state.edited, input_path)
+    st.session_state.pop("sheets", None)          # re-read from the saved file
+    st.sidebar.success(f"Saved edits to {input_path}")
 
 if generate and "edited" in st.session_state:
     with st.spinner("Solving…"):
