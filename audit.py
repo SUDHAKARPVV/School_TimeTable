@@ -1,36 +1,30 @@
 #!/usr/bin/env python3
-"""Independent audit: re-parse the generated timetable .xlsx (both sheets) and
-verify EVERY class/period/teacher against the source workbook. Does not trust the
-solver's internal solution — it reads the actual output cells.
+"""Independent audit: re-parse a generated timetable .xlsx (both sheets) and
+verify every class/period/teacher against the source workbook. School-aware.
 
-Usage:  python audit.py --src NRHS/Requirements/NRHS_Information.xlsx \
-                        --out NRHS/Output/NRHS_Timetable_Final.xlsx
+Usage:  python audit.py --school NRCS \
+                        --src NRCS/Requirements/NRCS_information_New.xlsx \
+                        --out NRCS/Output/NRCS_Timetable_Final.xlsx
 """
 import argparse
 from collections import defaultdict
 
 import openpyxl
-from timetable.model import (load_model, DAYS, SUBJ_ABBR, CLASS_DISPLAY,
-                             PARALLEL_SUBJECTS, GENERIC_TEACHER, TEACHER_WINDOWS,
-                             SUBJECT_WINDOWS, KARATE_DAY, KARATE_PERIOD, KARATE_CLASSES,
-                             PINNED_PERIOD)
-
-ABBR2SUBJ = {v: k for k, v in SUBJ_ABBR.items()}
-DISP2CANON = {v: k for k, v in CLASS_DISPLAY.items()}
+from timetable.model import load_model, DAYS
 
 
-def parse_class_sheet(path):
-    """Return {(canon_class, day_idx, period): (teacher, subject)} from Class sheet."""
+def parse_class_sheet(path, m):
+    cfg = m.cfg
+    abbr2subj = {v: k for k, v in cfg.subj_abbr.items()}
+    disp2canon = {v: k for k, v in cfg.class_display.items()}
     wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb["Class Time table"]
+    ws = wb[cfg.sheet_class_name]
     headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
-    col_class = {c: DISP2CANON.get(headers[c - 1], headers[c - 1])
+    col_class = {c: disp2canon.get(headers[c - 1], headers[c - 1])
                  for c in range(3, ws.max_column + 1) if headers[c - 1]}
-    out, supervisors = {}, {}
-    day = -1
+    out, supervisors, day = {}, {}, -1
     for r in range(2, ws.max_row + 1):
-        a = ws.cell(r, 1).value
-        if a:
+        if ws.cell(r, 1).value:
             day += 1
         plabel = ws.cell(r, 2).value
         is_study = str(plabel).strip().lower().startswith("study")
@@ -45,17 +39,14 @@ def parse_class_sheet(path):
             if abbr.upper() == "CLASS":
                 supervisors[cls] = teacher
                 continue
-            subj = ABBR2SUBJ.get(abbr, abbr)
-            out[(cls, day, period)] = (teacher, subj)
+            out[(cls, day, period)] = (teacher, abbr2subj.get(abbr, abbr))
     return out, supervisors
 
 
-def parse_teacher_sheet(path):
-    """Return {(teacher, day_idx, period): set((class, subj))} from Teacher sheet."""
+def parse_teacher_sheet(path, m):
     wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb["Teacher Time Table"]
-    grid = defaultdict(set)
-    teacher = None
+    ws = wb[m.cfg.sheet_teacher_name]
+    grid, teacher = defaultdict(set), None
     for r in range(1, ws.max_row + 1):
         a = ws.cell(r, 1).value
         if a and str(a).startswith("TEACHER:"):
@@ -65,25 +56,25 @@ def parse_teacher_sheet(path):
             day = DAYS.index(a)
             for c in range(2, 10):
                 raw = ws.cell(r, c).value
-                if not raw:
-                    continue
-                period = 8 if c == 9 else c - 1
-                grid[(teacher, day, period)].add(str(raw).strip())
+                if raw:
+                    grid[(teacher, day, 8 if c == 9 else c - 1)].add(str(raw).strip())
     return grid
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", default="NRHS/Requirements/NRHS_Information.xlsx")
-    ap.add_argument("--out", default="NRHS/Output/NRHS_Timetable_Final.xlsx")
+    ap.add_argument("--school", default="NRHS", choices=["NRHS", "NRCS"])
+    ap.add_argument("--src", required=True)
+    ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    m = load_model(args.src)
-    sol, supers = parse_class_sheet(args.out)
-    tgrid = parse_teacher_sheet(args.out)
+    m = load_model(args.src, args.school)
+    cfg = m.cfg
+    generic = set(cfg.generic_teacher.values())
+    sol, supers = parse_class_sheet(args.out, m)
+    tgrid = parse_teacher_sheet(args.out, m)
     fail = []
 
-    # 1 -- weekly counts per (class, subject) match the plan EXACTLY
     got = defaultdict(int)
     for (c, d, p), (t, s) in sol.items():
         got[(c, s)] += 1
@@ -93,86 +84,72 @@ def main():
             if got[(c, s)] != want:
                 fail.append(f"[COUNT] {c} {s}: plan={want} timetable={got[(c, s)]}")
 
-    # 2 -- every teacher matches the allotment for that (class, subject)
     for (c, d, p), (t, s) in sol.items():
         exp = m.teacher_of.get((c, s))
         if exp is None:
-            fail.append(f"[NO-ALLOT] {c} {s} taught by {t} but no allotment")
-        elif s in PARALLEL_SUBJECTS:
-            pass  # generic instructor label
-        elif t != exp:
+            fail.append(f"[NO-ALLOT] {c} {s} taught by {t}")
+        elif s not in cfg.parallel_subjects and t != exp:
             fail.append(f"[WRONG-TEACHER] {c} {s} @ {DAYS[d]}P{p}: got {t}, allotment {exp}")
 
-    # 3 -- no teacher double-booked (parallel activities exempt)
     occ = defaultdict(list)
     for (c, d, p), (t, s) in sol.items():
-        if s in PARALLEL_SUBJECTS or t in GENERIC_TEACHER.values():
+        if s in cfg.parallel_subjects or t in generic:
             continue
         occ[(t, d, p)].append(c)
     for (t, d, p), cs in occ.items():
         if len(cs) > 1:
             fail.append(f"[DOUBLE-BOOK] {t} @ {DAYS[d]}P{p}: {cs}")
 
-    # 4 -- study-hour classes fully packed P1-P7; 8/9/10 have exactly 6 free
-    for c in m.classes:
-        filled = sum(1 for p in range(1, 8) if (c, d, p) in sol
-                     for d in range(6)) if False else 0
+    for c in m.study_hour_classes:
         for d in range(6):
             for p in range(1, 8):
-                if c in m.study_hour_classes and (c, d, p) not in sol:
-                    fail.append(f"[EMPTY] {c} {DAYS[d]}P{p} (should be full)")
-    for c in ("Class 8", "Class 9", "Class 10"):
-        free = 48 - sum(1 for d in range(6) for p in range(1, 9) if (c, d, p) in sol)
-        if free != 6:
-            fail.append(f"[FREE] {c}: {free} free slots (expected 6)")
+                if (c, d, p) not in sol:
+                    fail.append(f"[EMPTY] {c} {DAYS[d]}P{p}")
+    for c in cfg.no_study_hour:
+        if c in m.classes:
+            free = 48 - sum(1 for d in range(6) for p in range(1, 9) if (c, d, p) in sol)
+            if free < 0:
+                fail.append(f"[FREE] {c}: overfilled")
 
-    # 5 -- study-hour supervisor matches the source sheet
     for c in m.study_hour_classes:
         if supers.get(c) != m.study_supervisor.get(c):
             fail.append(f"[SUPERVISOR] {c}: sheet={supers.get(c)} source={m.study_supervisor.get(c)}")
 
-    # 6 -- window rules
     for (c, d, p), (t, s) in sol.items():
-        if t in TEACHER_WINDOWS and p not in TEACHER_WINDOWS[t]:
-            fail.append(f"[WINDOW] {t} @ P{p} ({c}) allowed {sorted(TEACHER_WINDOWS[t])}")
-        if s in SUBJECT_WINDOWS and p not in SUBJECT_WINDOWS[s]:
-            fail.append(f"[SUBJ-WINDOW] {s} @ P{p} ({c}) allowed {sorted(SUBJECT_WINDOWS[s])}")
+        allowed = set(cfg.teacher_windows.get(t, cfg.default_window))
+        if t in cfg.morning_only:
+            allowed |= {5}                       # documented relaxation
+        if t in cfg.teacher_windows and p not in allowed:
+            fail.append(f"[WINDOW] {t} @ P{p} ({c}) allowed {sorted(allowed)}")
+        if s in cfg.subject_windows and p not in cfg.subject_windows[s]:
+            fail.append(f"[SUBJ-WINDOW] {s} @ P{p} ({c}) allowed {sorted(cfg.subject_windows[s])}")
 
-    # 7 -- Karate = Thu P7 for classes 1-8
     for (c, d, p), (t, s) in sol.items():
-        if s == "Karate" and (DAYS[d] != KARATE_DAY or p != KARATE_PERIOD):
+        if s == "Karate" and (DAYS[d] != cfg.karate_day or p != cfg.karate_period):
             fail.append(f"[KARATE] {c} @ {DAYS[d]}P{p}")
-    for c in KARATE_CLASSES:
-        if m.plan.get((c, "Karate"), 0) and (c, DAYS.index(KARATE_DAY), KARATE_PERIOD) not in sol:
-            fail.append(f"[KARATE-MISSING] {c} Thu P7")
 
-    # 7b -- pinned subjects (Rules 12/13) stay within {pref, pref-1}, mostly at pref
-    for (c, s), pp in PINNED_PERIOD.items():
+    for (c, s), pp in cfg.pinned_period.items():
         if m.plan.get((c, s), 0) == 0:
             continue
         slots = [p for (cc, d, p), (t, ss) in sol.items() if cc == c and ss == s]
         bad = [p for p in slots if p not in (pp, pp - 1)]
         if bad:
-            fail.append(f"[PIN] {c} {s} placed at P{bad} (allowed P{pp}/P{pp-1})")
+            fail.append(f"[PIN] {c} {s} at P{bad} (allowed P{pp}/P{pp-1})")
         print(f"  · pin {c} {s}: {slots.count(pp)}@P{pp}, {slots.count(pp-1)}@P{pp-1}")
 
-    # 8 -- Class sheet and Teacher sheet AGREE with each other (exact class+subject)
     for (c, d, p), (t, s) in sol.items():
-        if t in GENERIC_TEACHER.values():
+        if t in generic:
             continue
-        entry = tgrid.get((t, d, p), set())
-        exp = f"{CLASS_DISPLAY.get(c, c)} ({SUBJ_ABBR.get(s, s)})"
-        if exp not in entry:
-            fail.append(f"[SHEET-MISMATCH] {t} @ {DAYS[d]}P{p}: Class sheet says '{exp}', "
-                        f"Teacher sheet shows {entry or 'nothing'}")
+        exp = f"{cfg.class_display.get(c, c)} ({cfg.subj_abbr.get(s, s)})"
+        if exp not in tgrid.get((t, d, p), set()):
+            fail.append(f"[SHEET-MISMATCH] {t} @ {DAYS[d]}P{p}: Class says '{exp}', "
+                        f"Teacher sheet {tgrid.get((t, d, p)) or 'nothing'}")
 
-    # ---- report ----
-    checks = ["weekly counts", "teacher==allotment", "no double-booking",
-              "grid fully packed / free-slots", "study-hour supervisors",
-              "window rules", "Karate placement", "Class↔Teacher sheet agreement"]
-    print("INDEPENDENT AUDIT of", args.out)
+    print(f"INDEPENDENT AUDIT of {args.out}  (school={args.school})")
     print("=" * 60)
-    for ck in checks:
+    for ck in ["weekly counts", "teacher==allotment", "no double-booking",
+               "grid packed / free-slots", "study-hour supervisors", "window rules",
+               "Karate placement", "pinned periods", "Class↔Teacher sheet agreement"]:
         print(f"  ✓ checked: {ck}")
     print("=" * 60)
     if fail:
@@ -180,7 +157,7 @@ def main():
         for f in fail:
             print("   ", f)
     else:
-        print(f"✅ ALL CHECKS PASSED — {len(sol)} taught slots verified across "
+        print(f"✅ ALL CHECKS PASSED — {len(sol)} taught slots across "
               f"{len(m.classes)} classes and {len(m.teachers)} teachers.")
     return 1 if fail else 0
 

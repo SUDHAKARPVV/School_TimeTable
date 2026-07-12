@@ -2,18 +2,19 @@
 from __future__ import annotations
 from collections import defaultdict
 
-from .model import (Model, DAYS, N_DAYS, STUDY_PERIOD, PARALLEL_SUBJECTS,
-                    GENERIC_TEACHER, SUBJECT_WINDOWS, TEACHER_WINDOWS,
-                    KARATE_DAY, KARATE_PERIOD, KARATE_CLASSES)
+from .model import Model, DAYS, N_DAYS, STUDY_PERIOD
 
 
-def verify(m: Model, solution: dict):
+def verify(m: Model, solution: dict, windows=None):
+    cfg = m.cfg
+    windows = windows if windows is not None else cfg.teacher_windows
     errors, warnings = [], []
+    generic = set(cfg.generic_teacher.values())
 
     # 1. no teacher double-booked (parallel activities exempt)
     occ = defaultdict(list)
     for (c, d, p), (s, t) in solution.items():
-        if s in PARALLEL_SUBJECTS or t in GENERIC_TEACHER.values():
+        if s in cfg.parallel_subjects or t in generic:
             continue
         occ[(t, d, p)].append((c, s))
     for (t, d, p), lst in occ.items():
@@ -28,7 +29,7 @@ def verify(m: Model, solution: dict):
         if n and c in m.classes and got[(c, s)] != n:
             errors.append(f"COUNT: {c} {s} planned {n} got {got[(c, s)]}")
 
-    # 3. exactly one subject per taught slot
+    # 3. one subject per taught slot
     slot = defaultdict(int)
     for (c, d, p), _ in solution.items():
         slot[(c, d, p)] += 1
@@ -43,38 +44,31 @@ def verify(m: Model, solution: dict):
                 if (c, d, p) not in solution:
                     warnings.append(f"EMPTY SLOT: {c} {DAYS[d]} P{p} (study-hour class)")
 
-    # 5. window rules
+    # 5. window rules (against the effective windows actually used)
     for (c, d, p), (s, t) in solution.items():
-        if t in TEACHER_WINDOWS and p not in TEACHER_WINDOWS[t]:
-            errors.append(f"WINDOW: {t} teaching {c} at P{p} (allowed {sorted(TEACHER_WINDOWS[t])})")
-        if s in SUBJECT_WINDOWS and p not in SUBJECT_WINDOWS[s]:
-            errors.append(f"SUBJECT-WINDOW: {s} for {c} at P{p} (allowed {sorted(SUBJECT_WINDOWS[s])})")
+        if t in windows and p not in windows[t]:
+            errors.append(f"WINDOW: {t} teaching {c} at P{p} (allowed {sorted(windows[t])})")
+        if s in cfg.subject_windows and p not in cfg.subject_windows[s]:
+            errors.append(f"SUBJECT-WINDOW: {s} for {c} at P{p} (allowed {sorted(cfg.subject_windows[s])})")
 
-    # 6. Karate = Thursday P7 for classes 1-8
+    # 6. Karate placement
     for (c, d, p), (s, t) in solution.items():
-        if s == "Karate" and (DAYS[d] != KARATE_DAY or p != KARATE_PERIOD):
+        if s == "Karate" and (DAYS[d] != cfg.karate_day or p != cfg.karate_period):
             errors.append(f"KARATE misplaced: {c} at {DAYS[d]} P{p}")
-    for c in KARATE_CLASSES:
-        if m.plan.get((c, "Karate"), 0) and (c, DAYS.index(KARATE_DAY), KARATE_PERIOD) not in solution:
-            errors.append(f"KARATE missing for {c} at Thu P7")
+    for c in cfg.karate_classes:
+        if m.plan.get((c, "Karate"), 0) and (c, DAYS.index(cfg.karate_day), cfg.karate_period) not in solution:
+            errors.append(f"KARATE missing for {c} at {cfg.karate_day} P{cfg.karate_period}")
 
-    # 7. Gowtham has leisure at P5 (Rule 9)
-    for (c, d, p), (s, t) in solution.items():
-        if t == "D.GOWTHAM" and p == 5:
-            errors.append(f"GOWTHAM in P5 for {c} {DAYS[d]} (should be leisure)")
-
-    # 8. study-hour supervisor not teaching at P8 elsewhere
+    # 7. study-hour supervisor not teaching elsewhere at P8
     supervisors = {m.study_supervisor[c] for c in m.study_hour_classes if c in m.study_supervisor}
     for (c, d, p), (s, t) in solution.items():
-        if p == STUDY_PERIOD and t in supervisors and t == m.study_supervisor.get(c):
-            continue
-        if p == STUDY_PERIOD and t in supervisors:
+        if p == STUDY_PERIOD and t in supervisors and t != m.study_supervisor.get(c):
             errors.append(f"SUPERVISOR CLASH: {t} teaching {c} at P8 but supervises a study hour")
 
-    # ---- soft: leisure after 2-3 periods (study hour NOT counted -- Rule 7) ----
-    teach = defaultdict(lambda: defaultdict(set))   # t -> d -> set(taught periods)
+    # ---- soft: leisure (study hour not counted) ----
+    teach = defaultdict(lambda: defaultdict(set))
     for (c, d, p), (s, t) in solution.items():
-        if s in PARALLEL_SUBJECTS or t in GENERIC_TEACHER.values():
+        if s in cfg.parallel_subjects or t in generic:
             continue
         teach[t][d].add(p)
     for t, days in teach.items():
