@@ -147,9 +147,17 @@ with st.sidebar:
     seconds = st.slider("Solver time budget (s)", 15, 240, 90, 15)
     st.divider()
     generate = st.button("⚙️  Generate timetable", type="primary", width="stretch")
+    save_src = st.button("💾  Save edits to source workbook", width="stretch")
+    st.caption("Generate = solve on your edits (in memory). Save = write edits back "
+               "to the workbook so they persist.")
 
 if "sheets" not in st.session_state and os.path.exists(input_path):
     st.session_state.sheets = read_sheets(input_path)
+
+if save_src and "edited" in st.session_state:
+    write_sheets(*st.session_state.edited, input_path)
+    st.session_state.pop("sheets", None)          # re-read from the saved file
+    st.sidebar.success(f"Saved edits to {input_path}")
 
 tab_data, tab_class, tab_teacher, tab_report = st.tabs(
     ["✏️ Edit data", "📚 Class timetable", "👩‍🏫 Teacher timetable", "✅ Validation & bottlenecks"])
