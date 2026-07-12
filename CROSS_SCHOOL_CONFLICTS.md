@@ -9,21 +9,22 @@ person**; if they are different people, ignore the clash.
 
 ## Result
 
-**Current result: ⚠️ 2 clashes (Chalapathi) — pending identity confirmation.**
+**Current result: ✅ No cross-school clashes.**
 
 | Teacher (NRHS = NRCS) | NRHS periods | NRCS periods | Clash |
 |-----------------------|--------------|--------------|-------|
-| **CHALAPATHI = Chalapathi** | 1–3 | 1–7 | ⚠️ **2** (Wed P3, Thu P2) |
+| CHALAPATHI = Chalapathi | 1–3 | **5–7** | ✅ none (disjoint windows) |
 | D.GOWTHAM = Gowtham | 6–8 | 2–4 | ✅ none |
 | RIYA = Riya | 5–8 | 1–4 | ✅ none |
 | SUNITHA = Sunitha | 5–8 | 1–4 | ✅ none |
 | ~~M.LALITHA / Lalitha~~ | — | — | not shared (different people) |
 
-**Chalapathi:** both teach Biology to Classes 8–10, so likely the same person. NRHS
-Chalapathi is P1–P3; NRCS Chalapathi is unrestricted and now lands on Wed P3 / Thu P2,
-overlapping. **Fix (once confirmed same person):** restrict NRCS Chalapathi to the
-afternoon (P4–P7) so the two never overlap — his NRCS load (Biology, 10/wk) fits P4–P7
-easily. If they are different people, add `CHALAPATHI` to `CONFIRMED_DISTINCT`.
+All four shared teachers have **disjoint** windows across the two schools, so none is ever
+double-booked:
+- **Chalapathi** (same person, confirmed): NRHS **P1–P3**, NRCS **P5–P7**.
+- **Gowtham / Riya / Sunitha**: afternoon at NRHS, morning at NRCS.
+
+`M.LALITHA` (NRHS) and `Lalitha` (NRCS) are different people (`CONFIRMED_DISTINCT`).
 
 ## Interpretation
 
