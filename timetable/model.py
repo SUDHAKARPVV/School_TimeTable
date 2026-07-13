@@ -133,9 +133,9 @@ NRCS = SchoolConfig(
     parallel_subjects={"P.E.T", "Karate"},
     generic_teacher={"P.E.T": "P.E", "Karate": "Martial Arts"},
     class_teacher_subjects={"Oral"},
-    teacher_windows={"Sonu": {5, 6, 7, 8}, "Gowtham": {2, 3, 4},
+    teacher_windows={"Sonu": {5, 6, 7, 8}, "Gowtham": {2, 3},   # morning, not P1 & P4
                      "Sunitha": {1, 2, 3, 4}, "Riya": {1, 2, 3, 4}, "Bheema": {1, 2, 3, 4},
-                     "Chalapathi": {5, 6, 7}},   # avoid overlap w/ NRHS Chalapathi (P1-3)
+                     "Chalapathi": {5, 6, 7}},   # afternoon; disjoint from NRHS Chalapathi (P1-3)
     default_window={1, 2, 3, 4, 5, 6, 7},
     subject_windows={"P.E.T": {5, 6, 7}},
     karate_day="THU", karate_period=6,
