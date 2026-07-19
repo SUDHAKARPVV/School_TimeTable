@@ -208,7 +208,7 @@ class Model:
     blocked: dict = field(default_factory=dict)       # teacher -> {hard-blocked periods}
     soft_blocked: dict = field(default_factory=dict)  # teacher -> {soft-avoid periods}
     leisure_teachers: list = field(default_factory=list)   # sheet order
-    activity_window: dict = field(default_factory=dict)    # subject -> {allowed periods}
+    activity_window: dict = field(default_factory=dict)    # (subject, class) -> {periods}
     activity_group: dict = field(default_factory=dict)     # (subject, class) -> group label
     issues: list = field(default_factory=list)        # load-time Issues
     subjects_of: dict = field(default_factory=dict)
@@ -439,11 +439,30 @@ def parse_period_list(raw):
     return {p for p in out if 1 <= p <= 8} or None
 
 
+TICK_TOKENS = {"YES", "Y", "TRUE", "X", "OK", "1", "COMBINE", "COMBINED", "✓", "✔"}
+
+
+def _is_tick(v):
+    if v is True:
+        return True
+    if v in (None, "", False):
+        return False
+    return _compact(v) in TICK_TOKENS or str(v).strip() in ("✓", "✔")
+
+
 def _read_activity(rows, cres, subjects, issues):
-    """Activity Plan sheet: Activity | Allowed Periods | <class cols with group labels>.
-    -> (activity_window {subject: set}, activity_group {(subject, class): label}).
-    The sheet is optional; blank Allowed Periods = any period; blank class cell =
-    that class's sessions are not combined."""
+    """Activity Plan sheet — each row is one COMBINED-SESSION group:
+        Activity | Allowed Periods | one column per class (tick = in this group)
+
+    Ticked classes get that row's Allowed Periods as a hard window and are
+    scheduled together whenever the weekly counts allow.  A class ticked in no
+    row for its activity has no restriction and is not combined.  Legacy text
+    labels (e.g. 'Primary') in class cells still work: equal labels inside a
+    row form their own sub-group.
+
+    -> (activity_window {(subject, class): set},
+        activity_group  {(subject, class): group-label})
+    """
     window, group = {}, {}
     if not rows:
         return window, group
@@ -477,6 +496,7 @@ def _read_activity(rows, cres, subjects, issues):
         pref = [s for key, s in subj_keys.items() if key.startswith(k) or k.startswith(key)]
         return pref[0] if len(pref) == 1 else None
 
+    row_no = {}                                  # subject -> running group number
     for r in rows[hdr_i + 1:]:
         if not r or r[0] in (None, ""):
             continue
@@ -486,15 +506,28 @@ def _read_activity(rows, cres, subjects, issues):
                                 f"Activity Plan row '{r[0]}' does not match any Weekly-Plan "
                                 f"subject — row ignored", SHEET_ACTIVITY, str(r[0]).strip()))
             continue
-        if ap_col is not None and ap_col < len(r):
-            ps = parse_period_list(r[ap_col])
+        row_no[subj] = row_no.get(subj, 0) + 1
+        ps = parse_period_list(r[ap_col]) if ap_col is not None and ap_col < len(r) else None
+        for j, cl in enumerate_cols(cols, r):
+            v = r[j]
+            if v in (None, "", False):
+                continue
+            label = (f"Group {row_no[subj]}" if _is_tick(v)
+                     else f"Group {row_no[subj]}: {str(v).strip()}")
+            if (subj, cl) in group:
+                issues.append(Issue("warning",
+                                    f"{cl} is ticked in more than one '{subj}' row of the "
+                                    f"Activity Plan — only the first row is used",
+                                    SHEET_ACTIVITY, subj, cl))
+                continue
+            group[(subj, cl)] = label
             if ps:
-                window[subj] = ps
-        for j, cl in cols.items():
-            v = r[j] if j < len(r) else None
-            if v not in (None, ""):
-                group[(subj, cl)] = str(v).strip()
+                window[(subj, cl)] = ps
     return window, group
+
+
+def enumerate_cols(cols, r):
+    return [(j, cl) for j, cl in cols.items() if j < len(r)]
 
 
 def _read_leisure(rows, issues):

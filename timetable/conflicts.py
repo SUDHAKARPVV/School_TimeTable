@@ -115,14 +115,15 @@ def check_conflicts(m: Model):
         for s in m.subjects_of.get(c, []):
             t = m.teacher_of.get((c, s))
             n = m.plan[(c, s)]
-            if s in m.activity_window:
-                w = m.activity_window[s] & teachable
+            w_act = m.activity_window.get((s, c))
+            if w_act:
+                w = w_act & teachable
                 if t and t not in GENERIC_TEACHERS:
                     w &= m.teacher_allowed(t)
                     if t in supervisors:
                         w -= {STUDY_PERIOD}
                 if n > sum(_days_with_period(m, c, p) for p in w):
-                    plist = ", ".join(f"P{p}" for p in sorted(m.activity_window[s]))
+                    plist = ", ".join(f"P{p}" for p in sorted(w_act))
                     out.append(Issue("error",
                                      f"{c}: {s} needs {n} periods/week but its Activity-Plan "
                                      f"window ({plist}) only offers "

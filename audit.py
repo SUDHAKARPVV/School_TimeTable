@@ -131,9 +131,9 @@ def main():
 
     # 6b. Activity-Plan windows honoured
     for (c, d, p), (t, s) in sol.items():
-        if s in m.activity_window and p not in m.activity_window[s]:
-            fail.append(f"[ACTIVITY-WINDOW] {s} ({c}) @ {DAYS[d]}P{p} "
-                        f"allowed {sorted(m.activity_window[s])}")
+        w = m.activity_window.get((s, c))
+        if w and p not in w:
+            fail.append(f"[ACTIVITY-WINDOW] {s} ({c}) @ {DAYS[d]}P{p} allowed {sorted(w)}")
 
     # 7. Class sheet and Teacher sheet tally
     for (c, d, p), (t, s) in sol.items():

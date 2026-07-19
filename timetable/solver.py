@@ -58,8 +58,8 @@ def solve(m: Model, max_seconds: int = 120, log: bool = False, precheck: bool = 
                 continue                                    # precheck reports this
             parallel = teacher in GENERIC_TEACHERS
             allowed = set(teachable)
-            if s in m.activity_window:               # Activity Plan: allowed periods
-                allowed &= m.activity_window[s]
+            if (s, c) in m.activity_window:          # Activity Plan: allowed periods
+                allowed &= m.activity_window[(s, c)]
             if not parallel:
                 allowed &= m.teacher_allowed(teacher)
                 if teacher in supervisors:

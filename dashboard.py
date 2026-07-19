@@ -19,7 +19,7 @@ import pandas as pd
 import openpyxl
 import streamlit as st
 
-from timetable.model import (load_model, DAYS, GENERIC_TEACHERS,
+from timetable.model import (load_model, DAYS, GENERIC_TEACHERS, _is_tick,
                              INPUTS, LEISURE_COLS, SHEET_PLAN, SHEET_ALLOT,
                              SHEET_P1, SHEET_LEISURE, SHEET_ACTIVITY,
                              SCHOOLS as SCHOOLS_CFG)
@@ -162,7 +162,7 @@ def read_frames(path):
     if not body:
         leisure = pd.DataFrame(columns=LEISURE_COLS)
 
-    # --- Activity Plan (optional sheet) ---
+    # --- Activity Plan (optional sheet; each row = one combined-session group) ---
     rows = rows_of(SHEET_ACTIVITY)
     act_cols = ["Activity", "Allowed Periods"] + classes
     body = []
@@ -174,7 +174,7 @@ def read_frames(path):
         for r in rows[hdr + 1:]:
             if not r or r[0] in (None, ""):
                 continue
-            rec = {c: "" for c in act_cols}
+            rec = {c: (False if c in classes else "") for c in act_cols}
             rec["Activity"] = str(r[0]).strip()
             for j, h in enumerate(head):
                 if j == 0 or j >= len(r) or r[j] in (None, ""):
@@ -182,9 +182,12 @@ def read_frames(path):
                 if "period" in h.lower() or h.lower() == "allowed":
                     rec["Allowed Periods"] = str(r[j]).strip()
                 elif h in classes:
-                    rec[h] = str(r[j]).strip()
+                    rec[h] = _is_tick(r[j])
             body.append(rec)
     activity = pd.DataFrame(body, columns=act_cols)
+    for c in classes:
+        if c in activity.columns:
+            activity[c] = activity[c].fillna(False).astype(bool)
     return {"plan": plan, "allot": allot, "p1": p1, "leisure": leisure,
             "activity": activity}
 
@@ -231,12 +234,19 @@ def write_frames(frames, path):
     activity = frames.get("activity")
     if activity is not None:
         ws = wb.create_sheet(SHEET_ACTIVITY)
-        ws.append([SHEET_ACTIVITY])
+        ws.append([SHEET_ACTIVITY + "  (each row = one combined session group)"])
         ws.append(list(activity.columns))
         for _, r in activity.iterrows():
             if _cell(r.get("Activity", "")) == "":
                 continue
-            ws.append([_cell(v) for v in r.tolist()])
+            row = []
+            for col in activity.columns:
+                v = r[col]
+                if col in ("Activity", "Allowed Periods"):
+                    row.append(_cell(v))
+                else:
+                    row.append("Yes" if v is True or _is_tick(v) else "")
+            ws.append(row)
     wb.save(path)
     return path
 
@@ -491,13 +501,19 @@ with tab_data:
 
         # ---------- Activity Plan (P.E.T / Karate) ----------
         st.subheader("Activity Plan — parallel activities (P.E.T, Karate)")
-        st.caption("**Allowed Periods** (e.g. `6,7`) restricts when the activity can be "
-                   "scheduled — blank means any period. Give classes the **same group "
-                   "label** (e.g. Primary / Secondary) to combine their sessions: the "
-                   "solver schedules grouped classes together whenever the weekly counts "
-                   "allow. Blank cell = not combined.")
+        st.caption("**Each row is one combined session group**: tick the classes that do "
+                   "the activity **together**, and set that row's **Allowed Periods** "
+                   "(e.g. `6,7` — blank = any period). Add rows to make more "
+                   "combinations. A class ticked in no row is scheduled independently "
+                   "with no period restriction.")
+        act_cfg = {"Activity": st.column_config.TextColumn("Activity"),
+                   "Allowed Periods": st.column_config.TextColumn(
+                       "Allowed Periods", help="e.g. 6,7 or 5-7 or blank for any")}
+        for c in f["activity"].columns[2:]:
+            act_cfg[c] = st.column_config.CheckboxColumn(c, default=False)
         edited["activity"] = st.data_editor(f["activity"], width="stretch",
-                                            num_rows="dynamic", key=f"activity_{school}")
+                                            num_rows="dynamic", key=f"activity_{school}",
+                                            column_config=act_cfg)
         if SHEET_ACTIVITY in bad:
             with st.expander("🔴 Activity-Plan cells named in conflicts", expanded=True):
                 st.dataframe(style_red(edited["activity"], "Activity", bad[SHEET_ACTIVITY]),

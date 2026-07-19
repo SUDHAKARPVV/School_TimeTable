@@ -51,9 +51,10 @@ def verify(m: Model, solution: dict):
 
     # 5b. Activity-Plan windows honoured
     for (c, d, p), (s, t) in solution.items():
-        if s in m.activity_window and p not in m.activity_window[s]:
+        w = m.activity_window.get((s, c))
+        if w and p not in w:
             errors.append(f"ACTIVITY-WINDOW: {s} for {c} at {DAYS[d]} P{p} "
-                          f"(allowed {sorted(m.activity_window[s])})")
+                          f"(allowed {sorted(w)})")
 
     # 6. study-hour supervisor not teaching at P8
     supervisors = {m.study_supervisor[c] for c in m.study_hour_classes
