@@ -1,5 +1,22 @@
 openpyxl>=3.1
 ortools>=9.8
 pandas>=2.0
-streamlit>=1.40
 reportlab>=4.0
+
+# streamlit and starlette must be constrained TOGETHER.
+#
+# starlette 1.4.0 made thread_minimum_size a REQUIRED keyword-only argument of
+# GZipResponder.__init__. No streamlit release passes it -- checked against the
+# wheels for 1.59.2, 1.60.0, 1.61.0 and 1.61.1 -- so starlette 1.4.0 breaks
+# every one of them. Nothing fails at install time; every HTTP request then
+# dies inside streamlit's gzip middleware, the server answers 500 to health
+# checks and the app never starts. That is why an unchanged app can suddenly
+# stop deploying: a fresh resolve picks up the newer starlette.
+#
+# Upstream's fix is the starlette<1.4.0 cap that landed in streamlit 1.61.1.
+# Ask for >=1.61.1 rather than capping streamlit downwards: Streamlit Cloud
+# PREINSTALLS streamlit ("Streamlit is already installed" in the build log) and
+# will not downgrade it, so a downward pin cannot take effect. Requiring 1.61.1
+# puts the constraint in package metadata, where the resolver must honour it.
+streamlit>=1.61.1
+starlette>=1.3,<1.4
